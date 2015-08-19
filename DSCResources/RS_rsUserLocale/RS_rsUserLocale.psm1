@@ -13,13 +13,16 @@ function Get-TargetResource
 
     try
     {
-        $Culture = (Get-Culture).name
+        $DateTimeAndNumbersCulture = (Get-Culture).name
+        $UICulture = (Get-WinUILanguageOverride).name
+        Write-Verbose "Current DateTimeAndNumbersCulture is $DateTimeAndNumbersCulture, UICulture is $UICulture"
+
         $LocationID = Get-WinHomeLocation
         Write-Verbose "Current WinHomeLocation is $($LocationID.HomeLocation), GeoId is $($LocationID.GeoId)"
 
         $UserLanguageList = @((Get-WinUserLanguageList).InputMethodTips.Split(':'))
-		$LCIDHex = $UserLanguageList[0]
-		$InputLocaleID = $UserLanguageList[1]
+        $LCIDHex = $UserLanguageList[0]
+        $InputLocaleID = $UserLanguageList[1]
         Write-Verbose "Current Keyboard LCIDHex is $LCIDHex and InputLocaleID is $InputLocaleID"
     }
     catch
@@ -30,16 +33,17 @@ function Get-TargetResource
     {
         
     }
-
+    
 	$returnValue = @{
 		Name = $Name
-		Culture = $Culture
+		DateTimeAndNumbersCulture = $DateTimeAndNumbersCulture
+		UICulture = $UICulture
         LocationID = $LocationID.GeoId
 		LCIDHex = $LCIDHex
 		InputLocaleID = $InputLocaleID
 	}
-
-	$returnValue
+    
+    $returnValue
 }
 
 
@@ -53,7 +57,10 @@ function Set-TargetResource
 		$Name = "UserLocale",
 
 		[System.String]
-		$Culture,
+		$DateTimeAndNumbersCulture,
+
+		[System.String]
+		$UICulture,
 
 		[System.String]
 		$LocationID,
@@ -71,9 +78,13 @@ function Set-TargetResource
 
         # Set current user's settings before copying the affected registry hives to the rest of the local users
         Set-WinHomeLocation $LocationID
-        Set-Culture $Culture
-        Set-WinUserLanguageList $Culture -Force
-        Set-WinUILanguageOverride $Culture
+        Set-Culture $DateTimeAndNumbersCulture
+        Set-WinUserLanguageList $DateTimeAndNumbersCulture -Force
+        Set-WinUILanguageOverride $UICulture
+        # Set date, time and numbers formatting to specific value instead of "Match Windows display language"
+        Set-WinCultureFromLanguageListOptOut -OptOut $true
+        # For that we have to perform Set-Culture once again
+        Set-Culture $DateTimeAndNumbersCulture
         
         ClearDown
 
@@ -82,7 +93,7 @@ function Set-TargetResource
         Set-Location HKU:\
 
         $currentSID = (New-Object System.Security.Principal.NTAccount((whoami))).Translate([System.Security.Principal.SecurityIdentifier]).value
-        Write-Verbose "Current Users SID is $currentSID"
+        Write-Verbose "Current User's SID is $currentSID"
 
         # Remove backup regional settings to prevent conflicts
         if (Test-Path -Path "HKU:\$currentSID\Control Panel\International\User Profile System Backup")
@@ -95,20 +106,19 @@ function Set-TargetResource
 
         # Copy current user's locale settings to all local user's registry hives, but skip system and default hives
         Get-ChildItem | Where-Object { ! ($_.Name -match ".*Classes$")} | ForEach-Object {
-            
             $path = (Resolve-Path $_).path
+
+            Write-Verbose "Processing local user $($_.PSChildName)"
 
             # Skip current user's and default registry hive as we loop through all existing users
             # Note: DEFAULT is a copy of SYSTEM
             if (($currentSID -like $_.PSChildName) -or (".DEFAULT" -like $_.PSChildName))
             {
-                Write-Verbose "`nSkipping System and DEFAULT user regstry hives...`n"
-
+                Write-Verbose "`nSkipping System and DEFAULT user registry hives...`n"
             }
             else
             {
-
-                Write-Verbose "`nForce all local user culture settigns to $Culture"
+                Write-Verbose "`nForce all culture settings to $DateTimeAndNumbersCulture"
 
                 if (Test-Path -Path "$path\Control Panel\International")
                 {
@@ -119,7 +129,7 @@ function Set-TargetResource
                     Copy-Item "HKCU:\Control Panel\International" -Destination "$path\Control Panel" -Recurse -Force
                 }
 
-                Write-Verbose "Force default keyboard language to $Culture for $currentSID"
+                Write-Verbose "Force default keyboard language to $DateTimeAndNumbersCulture for $($_.PSChildName)"
                 
                 if (Test-Path -Path "$path\Keyboard Layout\Preload")
                 {
@@ -135,7 +145,6 @@ function Set-TargetResource
         reg unload HKU\DEFAULT_USER
         
         Write-Verbose "User Reginal Settings DONE"
-
     }
     catch
     {
@@ -155,7 +164,10 @@ function Test-TargetResource
 		$Name = "UserLocale",
 
 		[System.String]
-		$Culture,
+		$DateTimeAndNumbersCulture,
+
+		[System.String]
+		$UICulture,
 
 		[System.String]
 		$LocationID,
@@ -170,22 +182,35 @@ function Test-TargetResource
     try
     {
         # Discover current settings for the system account
-        $CurrentCulture = (Get-Culture).name
+        $CurrentDateTimeAndNumbersCulture = (Get-Culture).name
+        $CurrentUICulture = (Get-WinUILanguageOverride).name
         $CurrentLocationID = Get-WinHomeLocation
         $CurrentUserLanguageList = (Get-WinUserLanguageList).InputMethodTips
         $CurrentLCIDHex = $CurrentUserLanguageList.Split(':')[0]
         $CurrentInputLocaleID = $CurrentUserLanguageList.Split(':')[1]
 
-        Write-Verbose "Current CurrentCulture is $CurrentCulture"
-        if ($CurrentCulture -like $Culture)
+        Write-Verbose "Current DateTimeAndNumbersCulture is $CurrentDateTimeAndNumbersCulture"
+        if ($CurrentDateTimeAndNumbersCulture -like $DateTimeAndNumbersCulture)
         {
-            Write-Verbose "Culture setting is consistent - $CurrentCulture"
-            $CultureResult = $true
+            Write-Verbose "Culture setting for date, time and numbers formatting is consistent - $CurrentDateTimeAndNumbersCulture"
+            $DateTimeAndNumbersCultureResult = $true
         }
         else
         {
-            Write-Verbose "Culture setting is inconsistent - $CurrentCulture"
-            $CultureResult = $false
+            Write-Verbose "Culture setting for date, time and numbers formatting is inconsistent - $CurrentDateTimeAndNumbersCulture"
+            $DateTimeAndNumbersCultureResult = $false
+        }
+
+        Write-Verbose "Current UICulture is $CurrentUICulture"
+        if ($CurrentUICulture -like $UICulture)
+        {
+            Write-Verbose "Culture setting for user interface is consistent - $CurrentUICulture"
+            $UICultureResult = $true
+        }
+        else
+        {
+            Write-Verbose "Culture setting for user interface is inconsistent - $CurrentUICulture"
+            $UICultureResult = $false
         }
 
         Write-Verbose "Current WinHomeLocation is $($CurrentLocationID.HomeLocation), GeoId is $($CurrentLocationID.GeoId)"
@@ -212,7 +237,7 @@ function Test-TargetResource
             $InputResult = $false
         }
 
-        if (($InputResult -eq $true) -and ($GeoIdResult -eq $true) -and ($CultureResult -eq $true))
+        if (($InputResult -eq $true) -and ($GeoIdResult -eq $true) -and ($UICultureResult -eq $true) -and ($DateTimeAndNumbersCultureResult -eq $true))
         {
             $result = $true
             Write-Verbose "All settings are consistent"
@@ -222,7 +247,6 @@ function Test-TargetResource
             $result = $false
             Write-Verbose "Some or all settings are inconsistent"
         }
-
     }
     catch
     {
@@ -232,8 +256,8 @@ function Test-TargetResource
     {
         
     }
-	
-	$result
+    
+    $result
 }
 
 

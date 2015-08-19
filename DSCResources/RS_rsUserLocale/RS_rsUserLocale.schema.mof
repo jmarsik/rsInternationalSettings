@@ -1,9 +1,9 @@
-
 [ClassVersion("1.0"), FriendlyName("rsUserLocale")]
 class RS_rsUserLocale : OMI_BaseResource
 {
 	[Key] String Name;
-	[Write, Description("Provide user Culture setting")] String Culture;
+	[Write, Description("Provide user Culture setting for date, time and number formatting")] String DateTimeAndNumbersCulture;
+	[Write, Description("Provide user Culture setting for user interface (language of menu items etc)")] String UICulture;
 	[Write, Description("Provide user locale ID")] String LocationID;
 	[Write, Description("Provide user keyboard locale ID")] String LCIDHex;
 	[Write, Description("Provide user input ID")] String InputLocaleID;
