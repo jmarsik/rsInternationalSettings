@@ -38,7 +38,7 @@ function Get-TargetResource
 		Name = $Name
 		DateTimeAndNumbersCulture = $DateTimeAndNumbersCulture
 		UICulture = $UICulture
-        LocationID = $LocationID.GeoId
+		LocationID = $LocationID.GeoId
 		LCIDHex = $LCIDHex
 		InputLocaleID = $InputLocaleID
 	}
@@ -88,8 +88,9 @@ function Set-TargetResource
         
         ClearDown
 
-        $null = New-PSDrive -Name HKU   -PSProvider Registry -Root Registry::HKEY_USERS
-        reg load HKU\DEFAULT_USER C:\Users\Default\NTUSER.DAT
+        $null = New-PSDrive -Name HKU -PSProvider Registry -Root Registry::HKEY_USERS
+        # Settings for "new users"
+        reg load HKU\NEW_USER C:\Users\Default\NTUSER.DAT
         Set-Location HKU:\
 
         $currentSID = (New-Object System.Security.Principal.NTAccount((whoami))).Translate([System.Security.Principal.SecurityIdentifier]).value
@@ -110,11 +111,11 @@ function Set-TargetResource
 
             Write-Verbose "Processing local user $($_.PSChildName)"
 
-            # Skip current user's and default registry hive as we loop through all existing users
-            # Note: DEFAULT is a copy of SYSTEM
+            # Skip SYSTEM (which should be the current user!) and .DEFAULT registry hive as we loop through all existing users
+            # ... because .DEFAULT has SAME values as SYSTEM user (Set-Culture under SYSTEM user results in value change under .DEFAULT)
             if (($currentSID -like $_.PSChildName) -or (".DEFAULT" -like $_.PSChildName))
             {
-                Write-Verbose "`nSkipping System and DEFAULT user registry hives...`n"
+                Write-Verbose "`nSkipping SYSTEM (current user) and .DEFAULT user registry hives`n"
             }
             else
             {
@@ -141,8 +142,14 @@ function Set-TargetResource
 
         Set-Location C:\
         Remove-PSDrive HKU
+
+        # will help with successful unload of the registry hive, see comments in ClearDown function
+        Remove-Variable path
+        Remove-Variable currentSID
+        
         ClearDown
-        reg unload HKU\DEFAULT_USER
+
+        reg unload HKU\NEW_USER
         
         Write-Verbose "User Reginal Settings DONE"
     }
@@ -183,6 +190,7 @@ function Test-TargetResource
     {
         # Discover current settings for the system account
         $CurrentDateTimeAndNumbersCulture = (Get-Culture).name
+        $CurrentDateTimeAndNumbersCultureLegacy = Get-Item 'HKCU:\Control Panel\International' | Get-ItemPropertyValue -Name LocaleName
         $CurrentUICulture = (Get-WinUILanguageOverride).name
         $CurrentLocationID = Get-WinHomeLocation
         $CurrentUserLanguageList = (Get-WinUserLanguageList).InputMethodTips
@@ -192,12 +200,12 @@ function Test-TargetResource
         Write-Verbose "Current DateTimeAndNumbersCulture is $CurrentDateTimeAndNumbersCulture"
         if ($CurrentDateTimeAndNumbersCulture -like $DateTimeAndNumbersCulture)
         {
-            Write-Verbose "Culture setting for date, time and numbers formatting is consistent - $CurrentDateTimeAndNumbersCulture"
+            Write-Verbose "Culture setting for date, time and numbers formatting is consistent - $CurrentDateTimeAndNumbersCulture, $CurrentDateTimeAndNumbersCultureLegacy (legacy)"
             $DateTimeAndNumbersCultureResult = $true
         }
         else
         {
-            Write-Verbose "Culture setting for date, time and numbers formatting is inconsistent - $CurrentDateTimeAndNumbersCulture"
+            Write-Verbose "Culture setting for date, time and numbers formatting is inconsistent - $CurrentDateTimeAndNumbersCulture, $CurrentDateTimeAndNumbersCultureLegacy (legacy)"
             $DateTimeAndNumbersCultureResult = $false
         }
 
@@ -262,9 +270,13 @@ function Test-TargetResource
 
 
 # Garbage collection function
-function ClearDown {
-[gc]::Collect()
-[gc]::WaitForPendingFinalizers()
+# because unloading registry hive is only possible when there are no references to it
+#   including instances that are out of scope, but not garbaged
+# see https://social.technet.microsoft.com/Forums/en-US/034338e6-5db3-4fa1-8140-cdbfe9235e59/using-reg-load-and-reg-unload-setitemproperty-and-newitemproperty-bugs?forum=winserverpowershell
+function ClearDown
+{
+    [gc]::Collect()
+    [gc]::WaitForPendingFinalizers()
 }
 
 
