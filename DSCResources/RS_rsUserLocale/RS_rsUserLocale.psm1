@@ -76,17 +76,62 @@ function Set-TargetResource
     {
         ClearDown
 
-        # Set current user's settings before copying the affected registry hives to the rest of the local users
-        Set-WinHomeLocation $LocationID
-        Set-Culture $DateTimeAndNumbersCulture
-        Set-WinUserLanguageList $DateTimeAndNumbersCulture -Force
-        Set-WinUILanguageOverride $UICulture
-        # Set date, time and numbers formatting to specific value instead of "Match Windows display language"
-        Set-WinCultureFromLanguageListOptOut -OptOut $true
-        # For that we have to perform Set-Culture once again
-        Set-Culture $DateTimeAndNumbersCulture
-        
-        ClearDown
+        # log current settings first
+        $CurrentDateTimeAndNumbersCulture = (Get-Culture).Name
+        $CurrentDateTimeAndNumbersCultureLegacy = Get-Item 'HKCU:\Control Panel\International' | Get-ItemPropertyValue -Name LocaleName
+        Write-Verbose "Current DateTimeAndNumbersCulture is $CurrentDateTimeAndNumbersCulture, $CurrentDateTimeAndNumbersCultureLegacy (legacy Control Panel\International\LocaleName from registry)"
+
+        # TODO: should compare all the values, not just culture used for formatting!
+        if ($CurrentDateTimeAndNumbersCultureLegacy -ne $DateTimeAndNumbersCulture)
+        {
+            # set current user's settings before copying values from current user's registry to the rest of the local users
+            Write-Verbose "Changing basic locale settings for current user"
+
+            # the specific order of those settings is necessary
+            # to correctly apply all the overrides and opt outs and such stuff
+
+            Set-WinHomeLocation $LocationID
+
+            # run Set-Culture for the first time, this time normally in the DSC execution flow, more info below
+            Set-Culture $DateTimeAndNumbersCulture
+
+            Set-WinUserLanguageList $DateTimeAndNumbersCulture -Force
+            Set-WinUILanguageOverride $UICulture
+            # set date, time and numbers formatting to specific value instead of "Match Windows display language"
+            Set-WinCultureFromLanguageListOptOut -OptOut $true
+
+            # from my testing it looks like that Set-Culture method doesn't work at all when launched under LocalSystem
+            #  account (which is the account that PowerShell DSC usually uses), also other methods of setting regional
+            #  settings doesn't work (I tried PowerShell cmdlets, control.exe with intl.cpl, direct registry manipulation)
+            # maybe it would work with the following trick (running of the cmdlet under scheduled job, which means
+            #  different "scope of things", out of the normal DSC execution flow), but unfortunately the registration
+            #  of the scheduled job by this simple method also doesn't work under LocalSystem account :)
+            # therefore for this resource to work, one must execute it under OTHER THAN LocalSystem user account
+            #  by using the PsDscRunAsCredential parameter of the resource in DSC configuration
+            Register-ScheduledJob -Name "Set-Culture" -RunNow -ScriptBlock {
+                Param(
+                    $Culture
+                )
+                Set-Culture $Culture -Verbose
+            } -ArgumentList @($DateTimeAndNumbersCulture)
+            sleep 1
+            Get-Job -Name "Set-Culture" | Receive-Job -Wait
+            sleep 1
+            Unregister-ScheduledJob -Name "Set-Culture"
+            
+            ClearDown
+
+            Write-Verbose "User locale basic settings DONE, requesting reboot"
+
+            # require reboot after changing of the basic settings, system will "pick up" the changes
+            $global:DSCMachineStatus = 1
+            
+            return
+        }
+        else
+        {
+            Write-Verbose "User locale basic settings already set, continuing with copying of the settings to other users"
+        }
 
         $null = New-PSDrive -Name HKU -PSProvider Registry -Root Registry::HKEY_USERS
         # settings for "new users"
@@ -152,7 +197,10 @@ function Set-TargetResource
 
         reg unload HKU\NEW_USER
         
-        Write-Verbose "User Reginal Settings DONE"
+        Write-Verbose "User locale all settings DONE, requesting reboot"
+
+        # require reboot after performing all the changes
+        $global:DSCMachineStatus = 1
     }
     catch
     {
