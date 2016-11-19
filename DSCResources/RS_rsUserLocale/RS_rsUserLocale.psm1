@@ -1,20 +1,20 @@
 function Get-TargetResource
 {
-	[CmdletBinding()]
-	[OutputType([System.Collections.Hashtable])]
-	param
-	(
-		[parameter(Mandatory = $true)]
-		[System.String]
-		$Name = "UserLocale"
-	)
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
+    param
+    (
+        [parameter(Mandatory = $true)]
+        [System.String]
+        $Name = "UserLocale"
+    )
 
     ClearDown
 
     try
     {
-        $DateTimeAndNumbersCulture = (Get-Culture).name
-        $UICulture = (Get-WinUILanguageOverride).name
+        $DateTimeAndNumbersCulture = (Get-Culture).Name
+        $UICulture = (Get-WinUILanguageOverride).Name
         Write-Verbose "Current DateTimeAndNumbersCulture is $DateTimeAndNumbersCulture, UICulture is $UICulture"
 
         $LocationID = Get-WinHomeLocation
@@ -34,14 +34,14 @@ function Get-TargetResource
         
     }
     
-	$returnValue = @{
-		Name = $Name
-		DateTimeAndNumbersCulture = $DateTimeAndNumbersCulture
-		UICulture = $UICulture
-		LocationID = $LocationID.GeoId
-		LCIDHex = $LCIDHex
-		InputLocaleID = $InputLocaleID
-	}
+    $returnValue = @{
+        Name = $Name
+        DateTimeAndNumbersCulture = $DateTimeAndNumbersCulture
+        UICulture = $UICulture
+        LocationID = $LocationID.GeoId
+        LCIDHex = $LCIDHex
+        InputLocaleID = $InputLocaleID
+    }
     
     $returnValue
 }
@@ -49,28 +49,28 @@ function Get-TargetResource
 
 function Set-TargetResource
 {
-	[CmdletBinding()]
-	param
-	(
-		[parameter(Mandatory = $true)]
-		[System.String]
-		$Name = "UserLocale",
+    [CmdletBinding()]
+    param
+    (
+        [parameter(Mandatory = $true)]
+        [System.String]
+        $Name = "UserLocale",
 
-		[System.String]
-		$DateTimeAndNumbersCulture,
+        [System.String]
+        $DateTimeAndNumbersCulture,
 
-		[System.String]
-		$UICulture,
+        [System.String]
+        $UICulture,
 
-		[System.String]
-		$LocationID,
+        [System.String]
+        $LocationID,
 
-		[System.String]
-		$LCIDHex,
+        [System.String]
+        $LCIDHex,
 
-		[System.String]
-		$InputLocaleID
-	)
+        [System.String]
+        $InputLocaleID
+    )
 
     try
     {
@@ -89,33 +89,34 @@ function Set-TargetResource
         ClearDown
 
         $null = New-PSDrive -Name HKU -PSProvider Registry -Root Registry::HKEY_USERS
-        # Settings for "new users"
+        # settings for "new users"
         reg load HKU\NEW_USER C:\Users\Default\NTUSER.DAT
+
         Set-Location HKU:\
 
         $currentSID = (New-Object System.Security.Principal.NTAccount((whoami))).Translate([System.Security.Principal.SecurityIdentifier]).value
-        Write-Verbose "Current User's SID is $currentSID"
+        Write-Verbose "Current user's SID is $currentSID"
 
-        # Remove backup regional settings to prevent conflicts
+        # remove backup regional settings to prevent conflicts
         if (Test-Path -Path "HKU:\$currentSID\Control Panel\International\User Profile System Backup")
         {
-            Write-Verbose "Delete current User Backup Profile"
-            Remove-Item "HKU:\$currentSID\Control Panel\International\User Profile System Backup" -Recurse -Force
+            Write-Verbose "Removing current user's User Profile System Backup"
+            Remove-Item "HKU:\$currentSID\Control Panel\International\User Profile System Backup" -Recurse -Force -Verbose
         }
 
         Write-Verbose "Making changes to all local users..."
 
-        # Copy current user's locale settings to all local user's registry hives, but skip system and default hives
+        # copy current user's locale settings to all local users' registry hives, but skip system and default hives
         Get-ChildItem | Where-Object { ! ($_.Name -match ".*Classes$")} | ForEach-Object {
-            $path = (Resolve-Path $_).path
+            $path = (Resolve-Path $_).Path
 
             Write-Verbose "Processing local user $($_.PSChildName)"
 
-            # Skip SYSTEM (which should be the current user!) and .DEFAULT registry hive as we loop through all existing users
-            # ... because .DEFAULT has SAME values as SYSTEM user (Set-Culture under SYSTEM user results in value change under .DEFAULT)
+            # skip current user and .DEFAULT registry hive as we loop through all existing users
+            # ... because .DEFAULT has SAME values as SYSTEM user ?!?
             if (($currentSID -like $_.PSChildName) -or (".DEFAULT" -like $_.PSChildName))
             {
-                Write-Verbose "`nSkipping SYSTEM (current user) and .DEFAULT user registry hives`n"
+                Write-Verbose "`nSkipping current user or .DEFAULT user registry hives`n"
             }
             else
             {
@@ -130,7 +131,7 @@ function Set-TargetResource
                     Copy-Item "HKCU:\Control Panel\International" -Destination "$path\Control Panel" -Recurse -Force
                 }
 
-                Write-Verbose "Force default keyboard language to $DateTimeAndNumbersCulture for $($_.PSChildName)"
+                Write-Verbose "Force default keyboard language to $InputLocaleID for $($_.PSChildName)"
                 
                 if (Test-Path -Path "$path\Keyboard Layout\Preload")
                 {
@@ -162,29 +163,29 @@ function Set-TargetResource
 
 function Test-TargetResource
 {
-	[CmdletBinding()]
-	[OutputType([System.Boolean])]
-	param
-	(
-		[parameter(Mandatory = $true)]
-		[System.String]
-		$Name = "UserLocale",
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param
+    (
+        [parameter(Mandatory = $true)]
+        [System.String]
+        $Name = "UserLocale",
 
-		[System.String]
-		$DateTimeAndNumbersCulture,
+        [System.String]
+        $DateTimeAndNumbersCulture,
 
-		[System.String]
-		$UICulture,
+        [System.String]
+        $UICulture,
 
-		[System.String]
-		$LocationID,
+        [System.String]
+        $LocationID,
 
-		[System.String]
-		$LCIDHex,
+        [System.String]
+        $LCIDHex,
 
-		[System.String]
-		$InputLocaleID
-	)
+        [System.String]
+        $InputLocaleID
+    )
 
     try
     {
