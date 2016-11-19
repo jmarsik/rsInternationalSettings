@@ -5,13 +5,19 @@ rsInternationalSettings DSC Module
 
 ##Changelog
 
+######v0.4
+More changes in the method of setting of the values, previous attempt failed when changing the user locale, because it looks like that the Set-Culture PowerShell cmdlet doesn't work under LocalSystem user account (used by default by DSC) and also when launched via DSC under any account! So I tried to use the trick with scheduled job to discover problems with registering this scheduled job under LocalSystem account :) The only combination left was running DSC resource under other than LocalSystem account and using the scheduled job trick in the resource's code. Aaaand ... it worked! Hurray!
+
+######v0.3
+Completely refactored and changed rsUserLocale resource, separated date, time and numbers formatting user locale from UI user locale, changed method of setting of the values, cleaned up copying from current user to other users and the template for new users.
+
 ######v0.2
-Added support for setting manual peer list for NTP servers in rsTime using the PeerList variable
+Added support for setting manual peer list for NTP servers in rsTime using the PeerList variable.
 ######v0.1
 Added support for setting time zone, culture, system local and all local (including default) user profile settings.
 
 ####To-do:
-Add support for provision of an optional time server parameter
+Add support for provision of an optional time server parameter.
 
 ##Syntax##
 
@@ -23,48 +29,61 @@ See usage examples below...
 
 This will force all system and user settings to US codepage, including input setting:
 
+```
+    $credential = [pscredential]::new("SomeLocalAccountWithAdminRights", (ConvertTo-SecureString -String "PasswordOfThatAccount" -AsPlainText -Force))
+
     rsSysLocale SysLoc
     {
-    	SysLocale = "en-US"
+        SysLocale = "en-US"
     }
     
     rsTime time
     {
-    	TimeZone = "Central Standard Time"
+        TimeZone = "Central Standard Time"
     }
     
     rsUserLocale UserLocale
     {
-    	Name = "UserLocale"
-		Culture = "en-US"
-    	LocationID = "244"
-    	LCIDHex = "0409"
-    	InputLocaleID = "00000409"
-    }
+        Name = "UserLocale"
+        DateTimeAndNumbersCulture = "en-US"
+        UICulture = "en-US"
+        LocationID = "244"
+        LCIDHex = "0409"
+        InputLocaleID = "00000409"
 
+        PsDscRunAsCredential = $credential
+    }
+```
 
 **Set Server to UK locale and user input**
 
 This will force all system and user settings to UK codepage, including input setting:
 
+```
+    $credential = [pscredential]::new("SomeLocalAccountWithAdminRights", (ConvertTo-SecureString -String "PasswordOfThatAccount" -AsPlainText -Force))
+
     rsSysLocale SysLoc
     {
-    	SysLocale = "en-GB"
+        SysLocale = "en-GB"
     }
     
     rsTime time
     {
-    	TimeZone = "GMT Standard Time"
+        TimeZone = "GMT Standard Time"
     }
     
     rsUserLocale UserLocale
     {
-    	Name = "UserLocale"
-		Culture = "en-GB"
-    	LocationID = "242"
-    	LCIDHex = "0809"
-    	InputLocaleID = "00000809"
+        Name = "UserLocale"
+        DateTimeAndNumbersCulture = "en-GB"
+        UICulture = "en-GB"
+        LocationID = "242"
+        LCIDHex = "0809"
+        InputLocaleID = "00000809"
+
+        PsDscRunAsCredential = $credential
     }
+```
 
 **Add manual NTP peer server list**
 
@@ -78,11 +97,14 @@ To override the default time.windows.com NTP server or the automatic AD member t
 
 ###Acceptable parameter values
 
-#####$Culture
-Default system codepage for non-Unicode applications. 
+#####$DateTimeAndNumbersCulture
+User locale used to format date, time, numbers and other such values.
 Use the following PowerShell command to list all available options:
 
     [cultureinfo]::GetCultures([System.Globalization.CultureTypes]::AllCultures)
+
+#####$UICulture
+User locale used for the language of the user interface (menu items, ...).
 
 #####$TimeZone
 System time zone name description. Ex "GMT Standard Time"

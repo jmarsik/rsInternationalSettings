@@ -167,22 +167,22 @@ function Set-TargetResource
             {
                 Write-Verbose "`nForce all culture settings to $DateTimeAndNumbersCulture"
 
-                if (Test-Path -Path "$path\Control Panel\International")
+                if (Test-Path -Path (Join-Path $path "Control Panel\International"))
                 {
                     Write-Verbose "`nRemoving $path\Control Panel\International"
-                    Remove-Item "$path\Control Panel\International" -Recurse -Force
+                    Remove-Item -Path (Join-Path $path "Control Panel\International") -Recurse -Force -Verbose
 
-                    Write-Verbose "Copying current user International settings to $path\Control Panel\International"
-                    Copy-Item "HKCU:\Control Panel\International" -Destination "$path\Control Panel" -Recurse -Force
+                    Write-Verbose "Copying current user's International settings to $path\Control Panel\International"
+                    Copy-Item -Path "HKCU:\Control Panel\International" (Join-Path $path "Control Panel\") -Force -Recurse -Verbose
                 }
 
                 Write-Verbose "Force default keyboard language to $InputLocaleID for $($_.PSChildName)"
                 
-                if (Test-Path -Path "$path\Keyboard Layout\Preload")
+                if (Test-Path -Path (Join-Path $path "Keyboard Layout\Preload"))
                 {
-                    Remove-ItemProperty "$path\Keyboard Layout\Preload" -Name "1" -Force
+                    Remove-ItemProperty -Path (Join-Path $path "Keyboard Layout\Preload") -Name "1" -Force
                 }
-                Set-ItemProperty "$path\Keyboard Layout\Preload" -Name "1" -Value $InputLocaleID -Type String -Force
+                Set-ItemProperty -Path (Join-Path $path "Keyboard Layout\Preload") -Name "1" -Value $InputLocaleID -Type String -Force
             }
         }
 
@@ -237,17 +237,13 @@ function Test-TargetResource
 
     try
     {
-        # Discover current settings for the system account
-        $CurrentDateTimeAndNumbersCulture = (Get-Culture).name
+        # discover current settings for the system account
+        
+        # user locale, which means datetime and numbers formatting
+        $CurrentDateTimeAndNumbersCulture = (Get-Culture).Name
         $CurrentDateTimeAndNumbersCultureLegacy = Get-Item 'HKCU:\Control Panel\International' | Get-ItemPropertyValue -Name LocaleName
-        $CurrentUICulture = (Get-WinUILanguageOverride).name
-        $CurrentLocationID = Get-WinHomeLocation
-        $CurrentUserLanguageList = (Get-WinUserLanguageList).InputMethodTips
-        $CurrentLCIDHex = $CurrentUserLanguageList.Split(':')[0]
-        $CurrentInputLocaleID = $CurrentUserLanguageList.Split(':')[1]
-
-        Write-Verbose "Current DateTimeAndNumbersCulture is $CurrentDateTimeAndNumbersCulture"
-        if ($CurrentDateTimeAndNumbersCulture -like $DateTimeAndNumbersCulture)
+        Write-Verbose "Current DateTimeAndNumbersCulture is $CurrentDateTimeAndNumbersCulture, $CurrentDateTimeAndNumbersCultureLegacy (legacy Control Panel\International\LocaleName from registry)"
+        if ($CurrentDateTimeAndNumbersCultureLegacy -like $DateTimeAndNumbersCulture)
         {
             Write-Verbose "Culture setting for date, time and numbers formatting is consistent - $CurrentDateTimeAndNumbersCulture, $CurrentDateTimeAndNumbersCultureLegacy (legacy)"
             $DateTimeAndNumbersCultureResult = $true
@@ -258,6 +254,7 @@ function Test-TargetResource
             $DateTimeAndNumbersCultureResult = $false
         }
 
+        $CurrentUICulture = (Get-WinUILanguageOverride).Name
         Write-Verbose "Current UICulture is $CurrentUICulture"
         if ($CurrentUICulture -like $UICulture)
         {
@@ -270,6 +267,7 @@ function Test-TargetResource
             $UICultureResult = $false
         }
 
+        $CurrentLocationID = Get-WinHomeLocation
         Write-Verbose "Current WinHomeLocation is $($CurrentLocationID.HomeLocation), GeoId is $($CurrentLocationID.GeoId)"
         if ($($CurrentLocationID.GeoId) -like $LocationID)
         {
@@ -282,6 +280,9 @@ function Test-TargetResource
             $GeoIdResult = $false
         }
 
+        $CurrentUserLanguageList = (Get-WinUserLanguageList).InputMethodTips
+        $CurrentLCIDHex = $CurrentUserLanguageList.Split(':')[0]
+        $CurrentInputLocaleID = $CurrentUserLanguageList.Split(':')[1]
         Write-Verbose "Current Keyboard LCIDHex is $CurrentLCIDHex and InputLocaleID is $CurrentInputLocaleID"
         if ($CurrentUserLanguageList -like ($LCIDHex,$InputLocaleID -join ":"))
         {
@@ -294,7 +295,59 @@ function Test-TargetResource
             $InputResult = $false
         }
 
-        if (($InputResult -eq $true) -and ($GeoIdResult -eq $true) -and ($UICultureResult -eq $true) -and ($DateTimeAndNumbersCultureResult -eq $true))
+        # more complicated check - if user locale is set to the same value (we will check just the LocaleName value, not every formatting setting) for every user
+
+        $LocaleNameSyncedResult = $true
+
+        $null = New-PSDrive -Name HKU -PSProvider Registry -Root Registry::HKEY_USERS
+        # settings for "new users"
+        reg load HKU\NEW_USER C:\Users\Default\NTUSER.DAT | Out-Null
+        Set-Location HKU:\
+
+        $currentSID = (New-Object System.Security.Principal.NTAccount((whoami))).Translate([System.Security.Principal.SecurityIdentifier]).value
+        Write-Verbose "Current user's SID is $currentSID"
+
+        Get-ChildItem | Where-Object { ! ($_.Name -match ".*Classes$")} | ForEach-Object {
+            $path = (Resolve-Path $_).Path
+
+            Write-Verbose "Processing local user $($_.PSChildName)"
+
+            # skip SYSTEM (which should be the current user!) and .DEFAULT registry hive as we loop through all existing users
+            # ... because .DEFAULT has SAME values as SYSTEM user (Set-Culture under SYSTEM user results in value change under .DEFAULT)
+            if (($currentSID -like $_.PSChildName) -or (".DEFAULT" -like $_.PSChildName))
+            {
+                Write-Verbose "`nSkipping SYSTEM (current user) and .DEFAULT user registry hives`n"
+            }
+            else
+            {
+                if ((Get-ItemPropertyValue -Path (Join-Path $path "Control Panel\International") -Name LocaleName) -eq $DateTimeAndNumbersCulture)
+                {
+                    Write-Verbose "Locale name is consistent"
+                    $LocaleNameSyncedResult = $true
+                }
+                else
+                {
+                    Write-Verbose "Locale name is inconsistent"
+                    $LocaleNameSyncedResult = $false
+                }
+            }
+        }
+
+        Set-Location C:\
+        Remove-PSDrive HKU
+
+        # will help with successful unload of the registry hive, see comments in ClearDown function
+        Remove-Variable path
+        Remove-Variable currentSID
+        
+        ClearDown
+
+        reg unload HKU\NEW_USER | Out-Null
+
+        # end of more complicated check :)
+        
+        # check if everything matches or something is off
+        if (($InputResult -eq $true) -and ($GeoIdResult -eq $true) -and ($UICultureResult -eq $true) -and ($DateTimeAndNumbersCultureResult -eq $true) -and ($LocaleNameSyncedResult -eq $true))
         {
             $result = $true
             Write-Verbose "All settings are consistent"
