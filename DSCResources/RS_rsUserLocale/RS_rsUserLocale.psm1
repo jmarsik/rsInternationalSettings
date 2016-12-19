@@ -114,9 +114,18 @@ function Set-TargetResource
                 )
                 Set-Culture $Culture -Verbose
             } -ArgumentList @($DateTimeAndNumbersCulture)
-            sleep 1
+
+            # jobs is not immediately visible, so wait for it ...
+            $tries = 0
+            do {
+                $job = Get-Job -Name "Set-Culture" -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+                $tries = $tries + 1
+            } while ($tries -le 5 -and $job -eq $null)
+
             Get-Job -Name "Set-Culture" | Receive-Job -Wait
-            sleep 1
+            Start-Sleep -Seconds 3
+
             Unregister-ScheduledJob -Name "Set-Culture"
             
             ClearDown
