@@ -100,6 +100,9 @@ function Set-TargetResource
             # set date, time and numbers formatting to specific value instead of "Match Windows display language"
             Set-WinCultureFromLanguageListOptOut -OptOut $true
 
+            # load the module explicitly, so that one can use ordinary *-Job cmdlets to manage scheduled jobs
+            Import-Module PSScheduledJob
+
             # from my testing it looks like that Set-Culture method doesn't work at all when launched under LocalSystem
             #  account (which is the account that PowerShell DSC usually uses), also other methods of setting regional
             #  settings doesn't work (I tried PowerShell cmdlets, control.exe with intl.cpl, direct registry manipulation)
@@ -118,15 +121,19 @@ function Set-TargetResource
             # jobs is not immediately visible, so wait for it ...
             $tries = 0
             do {
+                Write-Verbose ("Trying Get-Job #" + $tries + " ...")
                 $job = Get-Job -Name "Set-Culture" -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 1
                 $tries = $tries + 1
-            } while ($tries -le 5 -and $job -eq $null)
+            } while ($tries -le 10 -and $job -eq $null)
 
             Get-Job -Name "Set-Culture" | Receive-Job -Wait
-            Start-Sleep -Seconds 3
+            Start-Sleep -Seconds 5
 
-            Unregister-ScheduledJob -Name "Set-Culture"
+            Unregister-ScheduledJob -Name "Set-Culture" -ErrorAction SilentlyContinue
+
+            # log list of scheduled jobs remaining, for troubleshooting
+            Write-Verbose ("Scheduled jobs remaining: " + (Get-ScheduledJob))
             
             ClearDown
 

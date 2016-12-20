@@ -5,6 +5,9 @@ rsInternationalSettings DSC Module
 
 ##Changelog
 
+######v0.5
+Changes to make rsUserLocale resource more robust. It looks that under certain load conditions (ie. when provisioning the virtual machine in Azure environment) the scheduled job registered by using Register-ScheduledJob cmdlet is not immediately available to Get-Job and other similar cmdlets. Or maybe it was caused by not explicitly importing the PSScheduledJob module, I don't know ... but that shouldn't be the cause because the module should be imported by calling the Register-ScheduledJob cmdlet. The observed behavior is strange and sometimes not very deterministic.
+
 ######v0.4
 More changes in the method of setting of the values, previous attempt failed when changing the user locale, because it looks like that the Set-Culture PowerShell cmdlet doesn't work under LocalSystem user account (used by default by DSC) and also when launched via DSC under any account! So I tried to use the trick with scheduled job to discover problems with registering this scheduled job under LocalSystem account :) The only combination left was running DSC resource under other than LocalSystem account and using the scheduled job trick in the resource's code. Aaaand ... it worked! Hurray!
 
