@@ -123,7 +123,7 @@ function Set-TargetResource
             do {
                 Write-Verbose ("Trying Get-Job #" + $tries + " ...")
                 $job = Get-Job -Name "Set-Culture" -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 1
+                Start-Sleep -Seconds 5
                 $tries = $tries + 1
             } while ($tries -le 10 -and $job -eq $null)
 
